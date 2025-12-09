@@ -1,6 +1,11 @@
-def main():
-    print("Hello from fastapiletterbox!")
+from fastapi import FastAPI
+import uvicorn
 
+app = FastAPI(title="PlayList API")
+
+@app.get("/")
+def read_root():
+    return {"message": "Hello from fastapiletterbox!"}
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run(app, host="0.0.0.0", port=8000)
