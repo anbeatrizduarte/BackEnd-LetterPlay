@@ -1,29 +1,51 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-# Cria o app FastAPI
 app = FastAPI()
 
-# Lista de origens permitidas (seu frontend GitHub Pages)
+# Configura CORS para o frontend GitHub Pages
 origins = [
-    "https://anbeatrizduarte.github.io",  # seu frontend
-    "http://localhost:5173",              # opcional, para testes locais
+    "https://anbeatrizduarte.github.io",
+    "http://localhost:5173",  # opcional, teste local
 ]
 
-# Middleware para permitir CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       # quem pode acessar
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],         # GET, POST, PUT, DELETE...
-    allow_headers=["*"],         # headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Exemplo de rota
-@app.get("/users/me")
-async def read_users_me():
-    return {"user": "Beatriz"}
+# Models
+class User(BaseModel):
+    username: str
+    email: str
+    password: str
 
-# Outras rotas do seu backend...
-# @app.post("/users/") ...
-# @app.get("/outra-rota/") ...
+class UserUpdate(BaseModel):
+    username: str = None
+    email: str = None
+    password: str = None
+
+# Rotas
+@app.post("/users/")
+async def register_user(user: User):
+    # lógica de salvar usuário
+    return {"message": "Usuário registrado com sucesso", "user": user.dict()}
+
+@app.get("/users/me/")
+async def get_user_profile():
+    # lógica para retornar usuário logado
+    return {"username": "Beatriz", "email": "beatriz@example.com"}
+
+@app.patch("/users/me/upload-pictures/")
+async def upload_profile_picture(profile_pic: UploadFile = File(...)):
+    # lógica para salvar a foto
+    return {"filename": profile_pic.filename, "message": "Foto enviada com sucesso"}
+
+@app.patch("/users/atualizar/{user_id}/")
+async def update_user(user_id: int, dados: UserUpdate):
+    # lógica para atualizar usuário
+    return {"user_id": user_id, "updated": dados.dict()}
