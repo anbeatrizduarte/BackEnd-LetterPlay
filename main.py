@@ -1,81 +1,77 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+# main.py
+from fastapi import FastAPI, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional
 
+# Importar nossos novos arquivos
+from database import get_db, engine, Base
+import models
+
 app = FastAPI()
 
-# Configura CORS para frontend GitHub Pages
-origins = [
-    "https://anbeatrizduarte.github.io",
-    "http://localhost:5173",  # opcional, teste local
-]
+# Criar tabelas ao iniciar (útil para testes rápidos, mas ideal é usar Alembic)
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
+# Configura CORS (Mantenha o seu original)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["https://anbeatrizduarte.github.io", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Modelos
-class User(BaseModel):
+# Seus Schemas Pydantic (Mantidos do seu código)
+class UserCreate(BaseModel):
     username: str
     email: str
     password: str
 
-class UserUpdate(BaseModel):
-    username: Optional[str] = None
-    email: Optional[str] = None
-    password: Optional[str] = None
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    profile_pic_url: Optional[str] = None
+    
+    class Config:
+        orm_mode = True
 
-# Banco de dados fake (apenas para exemplo)
-fake_users_db = {}
+# --- ROTAS ATUALIZADAS PARA USAR O BANCO REAL ---
 
-# Rota raiz
 @app.get("/")
 async def root():
-    return {"message": "Backend LetterPlay está funcionando!"}
+    return {"message": "API Conectada ao Banco de Dados!"}
 
-# Cadastro de usuário
-@app.post("/users/")
-async def register_user(user: User):
-    if user.username in fake_users_db:
+@app.post("/users/", response_model=UserResponse)
+async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Verificar se usuário já existe
+    result = await db.execute(select(models.User).where(models.User.username == user.username))
+    if result.scalars().first():
         raise HTTPException(status_code=400, detail="Usuário já existe")
-    fake_users_db[user.username] = user.dict()
-    return {"message": "Usuário registrado com sucesso", "user": user.dict()}
+    
+    # Criar novo usuário no Banco
+    new_user = models.User(
+        username=user.username,
+        email=user.email,
+        password=user.password # Em produção, use hash da senha!
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    return new_user
 
-# Perfil do usuário (exemplo simplificado)
-@app.get("/users/me/")
-async def get_user_profile(username: str = "biaateste"):
-    user = fake_users_db.get(username)
+@app.get("/users/me/", response_model=UserResponse)
+async def get_user_profile(username: str, db: AsyncSession = Depends(get_db)):
+    # Buscar no banco ao invés do dicionário
+    result = await db.execute(select(models.User).where(models.User.username == username))
+    user = result.scalars().first()
+    
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return user
-
-# Upload de foto de perfil
-@app.patch("/users/me/upload-pictures/")
-async def upload_profile_picture(profile_pic: UploadFile = File(...)):
-    # apenas retorna o nome do arquivo, sem salvar
-    return {"filename": profile_pic.filename, "message": "Foto enviada com sucesso"}
-
-# Atualizar usuário
-@app.patch("/users/atualizar/{user_id}/")
-async def update_user(user_id: str, dados: UserUpdate):
-    user = fake_users_db.get(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    update_data = dados.dict(exclude_unset=True)
-    user.update(update_data)
-    fake_users_db[user_id] = user
-    return {"user_id": user_id, "updated": user}
-
-# Login via token
-@app.post("/auth/token")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = fake_users_db.get(form_data.username)
-    if not user or user["password"] != form_data.password:
-        raise HTTPException(status_code=400, detail="Usuário ou senha incorretos")
-    return {"access_token": f"fake-token-for-{user['username']}", "token_type": "bearer"}
